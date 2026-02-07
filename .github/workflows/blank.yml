@@ -11,17 +11,17 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # updated to latest version
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '10'
+          node-version: '16'  # gitbook-cli works better with newer Node (10 is very old)
 
-      - name: Install GitBook
+      - name: Install GitBook CLI
         run: |
           npm install -g gitbook-cli
-          gitbook fetch 3.2.2
+          gitbook fetch 3.2.3  # latest 3.x version
 
       - name: Validate and create missing files
         run: |
@@ -36,6 +36,7 @@ jobs:
             done
           fi
 
+          # Create any missing files referenced in SUMMARY.md
           if [ -f "SUMMARY.md" ]; then
             grep -o '\[.*\](.*\.md)' SUMMARY.md | sed 's/.*(\(.*\.md\)).*/\1/' | while read file; do
               if [ ! -f "$file" ]; then
@@ -48,11 +49,12 @@ jobs:
             done
           fi
 
-      - name: Create book.json with styles and plugins
+      - name: Create book.json with basic config
         run: |
           cat << 'EOF' > book.json
           {
             "title": "Your Documentation",
+            "description": "Documentation built with GitBook",
             "plugins": [
               "-search",
               "fontsettings",
@@ -60,7 +62,9 @@ jobs:
             ],
             "pluginsConfig": {
               "fontsettings": {
-                "theme": "white"
+                "theme": "white",
+                "family": "sans",
+                "size": 2
               }
             },
             "styles": {
@@ -69,48 +73,27 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files
-        run: |
-          find . -type f -name "*.md" | while read -r file; do
-
-            # Replace hint blocks
-            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
-            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
-            sed -i 's/{% endhint %}/\n/g' "$file"
-            sed -i 's/{{[^}]*}}//g' "$file"
-
-            # Convert YouTube embeds
-            awk '
-              {
-                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
-                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
-                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
-                } else {
-                  print $0
-                }
-              }
-            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-
-          done
-
-      - name: Add Font Awesome and layout styles
+      - name: Add custom styles (Font Awesome + better blockquote/iframe)
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
-          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css');
 
           iframe {
             display: block;
-            margin: 20px auto;
+            margin: 24px auto;
             max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           }
 
           .markdown-section blockquote {
-            border-left: 4px solid #007acc;
-            background: #f8f9fa;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 4px;
+            border-left: 4px solid #0066cc;
+            background: #f8fbff;
+            padding: 16px 20px;
+            margin: 20px 0;
+            border-radius: 6px;
+            font-style: italic;
           }
 
           .markdown-section blockquote p:first-child {
@@ -122,14 +105,43 @@ jobs:
           }
           EOF
 
+      - name: Preprocess markdown files (remove/fix legacy GitBook tags)
+        run: |
+          find . -type f -name "*.md" | while read -r file; do
+            echo "Preprocessing: $file"
+
+            # Convert hint blocks → blockquote
+            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
+            sed -i 's/{% hint %}/> **NOTE:** /g' "$file"
+            sed -i 's/{% endhint %}/\n/g' "$file"
+
+            # Remove Liquid/Handlebars-style variables
+            sed -i 's/{{[^}]*}}//g' "$file"
+
+            # Convert YouTube embeds (most common cases)
+            # You can extend this regex if you have other embed formats
+            perl -i -pe '
+              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([^"&]+)[^"]*"\s*%?}/
+                "<iframe width=\"560\" height=\"315\" src=\"https:\/\/www.youtube.com\/embed\/$1\" frameborder=\"0\" allowfullscreen><\/iframe>"/gex;
+
+              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([^"]+)"\s*%?}/
+                "<iframe width=\"560\" height=\"315\" src=\"https:\/\/www.youtube.com\/embed\/$1\" frameborder=\"0\" allowfullscreen><\/iframe>"/gex;
+
+              # Fallback: remove any remaining {% embed ... %} tags
+              s/{%\s*embed[^%]*%}//g;
+            ' "$file"
+          done
+
       - name: Build GitBook
         run: |
           gitbook install --verbose
           gitbook build --verbose
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4  # updated to latest
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
-          force: true
+          force_orphan: true
+          # Optional: set a custom domain if you have one
+          # cname: docs.yourdomain.com
