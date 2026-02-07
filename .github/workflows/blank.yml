@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -15,11 +15,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # -------------------------------
+      # Checkout Repo
+      # -------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       # -------------------------------
-      # Install Node + GitBook CLI
+      # Setup Node + GitBook
       # -------------------------------
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -33,11 +36,14 @@ jobs:
 
       # -------------------------------
       # PREPROCESS MARKDOWN
-      # Convert GitBook Syntax
       # -------------------------------
       - name: Preprocess Markdown Files
         run: |
-          find . -type f -name "*.md" -not -path "./node_modules/*" | while read -r file; do
+          find . -type f -name "*.md" \
+            -not -path "./node_modules/*" \
+            -not -path "./_book/*" \
+            | while read -r file; do
+
             echo "Processing $file"
 
             # Remove GitBook variables {{ }}
@@ -51,26 +57,19 @@ jobs:
             sed -i 's/{% endhint %}/\n\n/g' "$file"
 
             # -------------------------------
-            # Convert YouTube Watch URL
+            # Convert ALL Embed Types
             # -------------------------------
             perl -0777 -i -pe '
-              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*"\s*%}/
+              # YouTube Watch URL
+              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
-            ' "$file"
 
-            # -------------------------------
-            # Convert YouTube Short URL
-            # -------------------------------
-            perl -0777 -i -pe '
-              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*"\s*%}/
+              # YouTube Short URL
+              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
-            ' "$file"
 
-            # -------------------------------
-            # Convert MP4 Videos
-            # -------------------------------
-            perl -0777 -i -pe '
-              s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)"\s*%}/
+              # MP4 Videos
+              s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
               <video controls style="width:100%;border-radius:10px;margin-top:15px;">
               <source src="$1" type="video\/mp4">
               Your browser does not support video.
@@ -80,11 +79,16 @@ jobs:
           done
 
       # -------------------------------
-      # VERIFY NO EMBEDS LEFT
+      # VERIFY EMBEDS REMOVED (Markdown Only)
       # -------------------------------
       - name: Verify No Embed Tags Remain
         run: |
-          if grep -r "{%.*embed" .; then
+          if grep -r "{%.*embed" . \
+            --include="*.md" \
+            --exclude-dir=node_modules \
+            --exclude-dir=.git \
+            --exclude-dir=.github \
+            --exclude-dir=_book; then
             echo "Embed tags still exist — build stopped."
             exit 1
           fi
@@ -109,6 +113,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
