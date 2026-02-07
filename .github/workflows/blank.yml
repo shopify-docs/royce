@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Setup Node.js
@@ -23,24 +23,29 @@ jobs:
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
+      # ---------------------------------------------------
+      # Auto Create SUMMARY + Missing Pages
+      # ---------------------------------------------------
       - name: Validate and create missing files
         run: |
           if [ ! -f "SUMMARY.md" ]; then
             echo "# Summary" > SUMMARY.md
             echo "" >> SUMMARY.md
-            for file in *.md **/*.md; do
-              if [[ "$file" != "README.md" && "$file" != "SUMMARY.md" ]]; then
-                title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                echo "* [$title]($file)" >> SUMMARY.md
-              fi
+
+            find . -name "*.md" ! -name "README.md" ! -name "SUMMARY.md" | sort | while read file; do
+              title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+              echo "* [$title](${file#./})" >> SUMMARY.md
             done
           fi
 
+      # ---------------------------------------------------
+      # Create book.json
+      # ---------------------------------------------------
       - name: Create book.json
         run: |
           cat << 'EOF' > book.json
           {
-            "title": "Your Documentation",
+            "title": "Documentation",
             "plugins": [
               "-search",
               "fontsettings",
@@ -57,15 +62,24 @@ jobs:
           }
           EOF
 
-      - name: Add basic styles
+      # ---------------------------------------------------
+      # Add Styling + Video Responsive
+      # ---------------------------------------------------
+      - name: Add Website Styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
+
+          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+
           iframe {
             display: block;
             margin: 20px auto;
             max-width: 100%;
+            width: 100%;
+            height: 420px;
             border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           }
 
           .markdown-section blockquote {
@@ -75,38 +89,62 @@ jobs:
             margin: 16px 0;
             border-radius: 4px;
           }
+
           EOF
 
-      - name: Preprocess markdown files
+      # ---------------------------------------------------
+      # Preprocess Markdown (ENABLE EMBEDS)
+      # ---------------------------------------------------
+      - name: Preprocess Markdown Files
         run: |
           find . -type f -name "*.md" -not -path "./node_modules/*" | while read -r file; do
             echo "Processing $file"
 
-            # Replace hint blocks
+            # Remove GitBook Variables
+            sed -i 's/{{[^}]*}}//g' "$file"
+
+            # Convert Hint Blocks
             sed -i '/{% hint style="[^"]*" %}/,/{% endhint %}/c\> **TIP:**' "$file" || true
             sed -i '/{% hint %}/,/{% endhint %}/c\> **INFO:**' "$file" || true
             sed -i 's/{% endhint %}/\n\n/g' "$file"
 
-            # Remove GitBook variables
-            sed -i 's/{{[^}]*}}//g' "$file"
-
-            # Remove embed blocks completely
-            sed -i '/{%\s*embed/,/{%\s*endembed\s*%}/d' "$file" 2>/dev/null || true
-            sed -i 's/{%\s*embed[^%]*%}//g' "$file"
-            sed -i 's/{%\s*endembed\s*%}//g' "$file"
-
-            # Convert YouTube links into iframe
-            perl -i -pe '
-              s/(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\S*)?)/
-              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$2" frameborder="0" allowfullscreen><\/iframe>/g;
+            # Convert YouTube Embed (watch URL)
+            perl -0777 -i -pe '
+              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*"\s*%}/
+              <iframe src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
             ' "$file"
+
+            # Convert YouTube Embed (short URL)
+            perl -0777 -i -pe '
+              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*"\s*%}/
+              <iframe src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
+            ' "$file"
+
           done
 
+      # ---------------------------------------------------
+      # Safety Check
+      # ---------------------------------------------------
+      - name: Verify No Embed Tags Remain
+        run: |
+          if grep -r "{%.*embed" .; then
+            echo "Embed tags still exist — build stopped."
+            exit 1
+          else
+            echo "Embed conversion successful"
+          fi
+
+      # ---------------------------------------------------
+      # Build GitBook
+      # ---------------------------------------------------
       - name: Build GitBook
         run: |
           gitbook install
           gitbook build
 
+      # ---------------------------------------------------
+      # Deploy to GitHub Pages
+      # ---------------------------------------------------
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
