@@ -2,8 +2,13 @@ name: Build and Deploy GitBook
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build:
@@ -11,143 +16,104 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      # -------------------------------
+      # Install Node + GitBook CLI
+      # -------------------------------
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '10'
+          node-version: 18
 
-      - name: Install GitBook
+      - name: Install GitBook CLI
         run: |
           npm install -g gitbook-cli
-          gitbook fetch 3.2.2
+          gitbook install
 
-      # ---------------------------------------------------
-      # Auto Create SUMMARY + Missing Pages
-      # ---------------------------------------------------
-      - name: Validate and create missing files
-        run: |
-          if [ ! -f "SUMMARY.md" ]; then
-            echo "# Summary" > SUMMARY.md
-            echo "" >> SUMMARY.md
-
-            find . -name "*.md" ! -name "README.md" ! -name "SUMMARY.md" | sort | while read file; do
-              title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-              echo "* [$title](${file#./})" >> SUMMARY.md
-            done
-          fi
-
-      # ---------------------------------------------------
-      # Create book.json
-      # ---------------------------------------------------
-      - name: Create book.json
-        run: |
-          cat << 'EOF' > book.json
-          {
-            "title": "Documentation",
-            "plugins": [
-              "-search",
-              "fontsettings",
-              "theme-default"
-            ],
-            "pluginsConfig": {
-              "fontsettings": {
-                "theme": "white"
-              }
-            },
-            "styles": {
-              "website": "styles/website.css"
-            }
-          }
-          EOF
-
-      # ---------------------------------------------------
-      # Add Styling + Video Responsive
-      # ---------------------------------------------------
-      - name: Add Website Styles
-        run: |
-          mkdir -p styles
-          cat << 'EOF' > styles/website.css
-
-          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
-
-          iframe {
-            display: block;
-            margin: 20px auto;
-            max-width: 100%;
-            width: 100%;
-            height: 420px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-          }
-
-          .markdown-section blockquote {
-            border-left: 4px solid #007acc;
-            background: #f8f9fa;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 4px;
-          }
-
-          EOF
-
-      # ---------------------------------------------------
-      # Preprocess Markdown (ENABLE EMBEDS)
-      # ---------------------------------------------------
+      # -------------------------------
+      # PREPROCESS MARKDOWN
+      # Convert GitBook Syntax
+      # -------------------------------
       - name: Preprocess Markdown Files
         run: |
           find . -type f -name "*.md" -not -path "./node_modules/*" | while read -r file; do
             echo "Processing $file"
 
-            # Remove GitBook Variables
+            # Remove GitBook variables {{ }}
             sed -i 's/{{[^}]*}}//g' "$file"
 
+            # -------------------------------
             # Convert Hint Blocks
+            # -------------------------------
             sed -i '/{% hint style="[^"]*" %}/,/{% endhint %}/c\> **TIP:**' "$file" || true
             sed -i '/{% hint %}/,/{% endhint %}/c\> **INFO:**' "$file" || true
             sed -i 's/{% endhint %}/\n\n/g' "$file"
 
-            # Convert YouTube Embed (watch URL)
+            # -------------------------------
+            # Convert YouTube Watch URL
+            # -------------------------------
             perl -0777 -i -pe '
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*"\s*%}/
-              <iframe src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
             ' "$file"
 
-            # Convert YouTube Embed (short URL)
+            # -------------------------------
+            # Convert YouTube Short URL
+            # -------------------------------
             perl -0777 -i -pe '
               s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*"\s*%}/
-              <iframe src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
+            ' "$file"
+
+            # -------------------------------
+            # Convert MP4 Videos
+            # -------------------------------
+            perl -0777 -i -pe '
+              s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)"\s*%}/
+              <video controls style="width:100%;border-radius:10px;margin-top:15px;">
+              <source src="$1" type="video\/mp4">
+              Your browser does not support video.
+              <\/video>/gs;
             ' "$file"
 
           done
 
-      # ---------------------------------------------------
-      # Safety Check
-      # ---------------------------------------------------
+      # -------------------------------
+      # VERIFY NO EMBEDS LEFT
+      # -------------------------------
       - name: Verify No Embed Tags Remain
         run: |
           if grep -r "{%.*embed" .; then
             echo "Embed tags still exist — build stopped."
             exit 1
-          else
-            echo "Embed conversion successful"
           fi
 
-      # ---------------------------------------------------
-      # Build GitBook
-      # ---------------------------------------------------
+      # -------------------------------
+      # BUILD GITBOOK
+      # -------------------------------
       - name: Build GitBook
-        run: |
-          gitbook install
-          gitbook build
+        run: gitbook build . ./_book
 
-      # ---------------------------------------------------
-      # Deploy to GitHub Pages
-      # ---------------------------------------------------
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      # -------------------------------
+      # Upload GitHub Pages Artifact
+      # -------------------------------
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_book
-          force_orphan: true
+          path: ./_book
+
+  # -------------------------------
+  # DEPLOY JOB
+  # -------------------------------
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
