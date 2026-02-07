@@ -10,61 +10,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
-          node-version: '10'   # more reliable than 10
+          node-version: '10'
 
-      - name: Install GitBook CLI
+      - name: Install GitBook
         run: |
           npm install -g gitbook-cli
-          gitbook fetch 3.2.3   # latest in 3.x series
+          gitbook fetch 3.2.2
 
-      - name: Validate and create missing SUMMARY.md entries
-        run: |
-          if [ ! -f "SUMMARY.md" ]; then
-            echo "# Summary" > SUMMARY.md
-            echo "" >> SUMMARY.md
-            for file in *.md **/*.md; do
-              if [[ "$file" != "README.md" && "$file" != "SUMMARY.md" ]]; then
-                title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                echo "* [$title]($file)" >> SUMMARY.md
-              fi
-            done
-          fi
-
-          # Create missing referenced files
-          if [ -f "SUMMARY.md" ]; then
-            grep -oP '\(\K[^)]+\.md(?=\))' SUMMARY.md | while read -r file; do
-              if [ ! -f "$file" ]; then
-                echo "Creating missing file: $file"
-                title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                mkdir -p "$(dirname "$file")"
-                echo "# $title" > "$file"
-                echo "" >> "$file"
-                echo "This page is under construction." >> "$file"
-              fi
-            done
-          fi
-
-      - name: Create book.json
+      - name: Create book.json with styles and plugins
         run: |
           cat << 'EOF' > book.json
           {
-            "title": "Your Documentation Title",
+            "title": "Your Documentation",
             "plugins": [
-              "-lunr",
               "-search",
               "fontsettings",
               "theme-default"
             ],
             "pluginsConfig": {
+              "theme-default": {
+                "scripts": ["styles/inject-icons.js"]
+              },
               "fontsettings": {
-                "theme": "white",
-                "family": "sans",
-                "size": 2
+                "theme": "white"
               }
             },
             "styles": {
@@ -73,58 +46,113 @@ jobs:
           }
           EOF
 
-      - name: Create custom styles
+      - name: Add Font Awesome and layout styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
-          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css');
+          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
 
-          .markdown-section iframe {
+          .markdown-section h1 i,
+          .markdown-section h2 i,
+          .markdown-section h3 i {
+            margin-right: 8px;
+            font-size: 1em;
+            vertical-align: middle;
+            color: #555;
+          }
+
+          iframe {
             display: block;
-            margin: 1.5em auto;
+            margin: 20px auto;
             max-width: 100%;
-            border: none;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
           }
 
           .markdown-section blockquote {
-            border-left: 4px solid #0066cc;
-            background-color: #f8fbff;
-            padding: 1rem 1.5rem;
-            margin: 1.5rem 0;
-            border-radius: 6px;
+            border-left: 4px solid #007acc;
+            background: #f8f9fa;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+          }
+
+          .markdown-section blockquote p:first-child {
+            margin-top: 0;
+          }
+
+          .markdown-section blockquote p:last-child {
+            margin-bottom: 0;
           }
           EOF
 
-      - name: Preprocess markdown – convert or remove {% embed %} tags
+      - name: Add icon injection script
+        run: |
+          cat << 'EOF' > styles/inject-icons.js
+          document.addEventListener("DOMContentLoaded", function () {
+            const iconMap = {
+              "camcorder": "fa-video",
+              "terminal": "fa-terminal",
+              "rocket": "fa-rocket",
+              "settings": "fa-cog",
+              "book": "fa-book",
+              "api": "fa-code",
+              "code": "fa-file-code",
+              "image": "fa-image",
+              "video": "fa-video",
+              "cart": "fa-shopping-cart",
+              "search": "fa-magnifying-glass",
+              "wishlist": "fa-heart",
+              "filter": "fa-sliders",
+              "bars": "fa-bars",
+              "header": "fa-heading",
+              "id-card-clip": "fa-id-card",
+              "layer-minus": "fa-layer-group"
+            };
+
+            document.querySelectorAll(".summary a").forEach(link => {
+              const href = link.getAttribute("href");
+              const iconKey = href.replace(".html", "").toLowerCase();
+              const faIcon = iconMap[iconKey];
+              if (faIcon) {
+                link.innerHTML = `<i class="fa-solid ${faIcon}"></i> ` + link.innerHTML;
+              }
+            });
+
+            document.querySelectorAll(".markdown-section h1, .markdown-section h2").forEach(heading => {
+              const text = heading.textContent.toLowerCase();
+              for (const key in iconMap) {
+                if (text.includes(key)) {
+                  heading.innerHTML = `<i class="fa-solid ${iconMap[key]}"></i> ` + heading.innerHTML;
+                  break;
+                }
+              }
+            });
+          });
+          EOF
+
+      - name: Preprocess markdown files (frontmatter, embeds, hints)
         run: |
           find . -type f -name "*.md" | while read -r file; do
-            echo "→ Processing $file"
-
-            # Hints → blockquotes
-            sed -i 's/{% hint style="[^"]*" %}/> **TIP** /g' "$file"
-            sed -i 's/{% hint %}/> **NOTE** /g' "$file"
+            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
+            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
-
-            # Remove variables / frontmatter noise
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Convert common YouTube embed syntaxes to <iframe>
-            # Add more patterns if your embeds use different formats
-            perl -0777 -i -pe '
-              s/{%\s*embed\s+url\s*=\s*"(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:[^"]*)?)"\s*%?}/
-                "<iframe width=\"560\" height=\"315\" src=\"https:\/\/www.youtube.com\/embed\/$2\" frameborder=\"0\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen><\/iframe>"/gix;
+            awk '
+              {
+                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
+                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
+                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
+                } else {
+                  print $0
+                }
+              }
+            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
 
-              # Fallback: remove any remaining {% embed ... %} completely
-              s/{%\s*embed[^%]*%}//g;
-            ' "$file"
+            if ! grep -q '^---' "$file"; then
+              icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+              echo -e "---\nicon: $icon\n---\n$(cat "$file")" > "$file"
+            fi
           done
-
-      - name: Debug – check if any embed tags remain
-        run: |
-          echo "Remaining {% embed %} tags:"
-          grep -r --include="*.md" -F "{% embed" . || echo "→ None found – good!"
 
       - name: Build GitBook
         run: |
@@ -132,7 +160,7 @@ jobs:
           gitbook build --verbose
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
