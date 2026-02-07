@@ -8,40 +8,40 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4  # updated to latest version
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '10'  # gitbook-cli works better with newer Node (10 is very old)
+          node-version: '10'   # more reliable than 10
 
       - name: Install GitBook CLI
         run: |
           npm install -g gitbook-cli
-          gitbook fetch 3.2.3  # latest 3.x version
+          gitbook fetch 3.2.3   # latest in 3.x series
 
-      - name: Validate and create missing files
+      - name: Validate and create missing SUMMARY.md entries
         run: |
           if [ ! -f "SUMMARY.md" ]; then
             echo "# Summary" > SUMMARY.md
             echo "" >> SUMMARY.md
-            for file in *.md; do
-              if [ "$file" != "README.md" ] && [ "$file" != "SUMMARY.md" ]; then
-                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+            for file in *.md **/*.md; do
+              if [[ "$file" != "README.md" && "$file" != "SUMMARY.md" ]]; then
+                title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
                 echo "* [$title]($file)" >> SUMMARY.md
               fi
             done
           fi
 
-          # Create any missing files referenced in SUMMARY.md
+          # Create missing referenced files
           if [ -f "SUMMARY.md" ]; then
-            grep -o '\[.*\](.*\.md)' SUMMARY.md | sed 's/.*(\(.*\.md\)).*/\1/' | while read file; do
+            grep -oP '\(\K[^)]+\.md(?=\))' SUMMARY.md | while read -r file; do
               if [ ! -f "$file" ]; then
                 echo "Creating missing file: $file"
-                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+                title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+                mkdir -p "$(dirname "$file")"
                 echo "# $title" > "$file"
                 echo "" >> "$file"
                 echo "This page is under construction." >> "$file"
@@ -49,13 +49,13 @@ jobs:
             done
           fi
 
-      - name: Create book.json with basic config
+      - name: Create book.json
         run: |
           cat << 'EOF' > book.json
           {
-            "title": "Your Documentation",
-            "description": "Documentation built with GitBook",
+            "title": "Your Documentation Title",
             "plugins": [
+              "-lunr",
               "-search",
               "fontsettings",
               "theme-default"
@@ -73,64 +73,58 @@ jobs:
           }
           EOF
 
-      - name: Add custom styles (Font Awesome + better blockquote/iframe)
+      - name: Create custom styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
           @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css');
 
-          iframe {
+          .markdown-section iframe {
             display: block;
-            margin: 24px auto;
+            margin: 1.5em auto;
             max-width: 100%;
+            border: none;
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
           }
 
           .markdown-section blockquote {
             border-left: 4px solid #0066cc;
-            background: #f8fbff;
-            padding: 16px 20px;
-            margin: 20px 0;
+            background-color: #f8fbff;
+            padding: 1rem 1.5rem;
+            margin: 1.5rem 0;
             border-radius: 6px;
-            font-style: italic;
-          }
-
-          .markdown-section blockquote p:first-child {
-            margin-top: 0;
-          }
-
-          .markdown-section blockquote p:last-child {
-            margin-bottom: 0;
           }
           EOF
 
-      - name: Preprocess markdown files (remove/fix legacy GitBook tags)
+      - name: Preprocess markdown – convert or remove {% embed %} tags
         run: |
           find . -type f -name "*.md" | while read -r file; do
-            echo "Preprocessing: $file"
+            echo "→ Processing $file"
 
-            # Convert hint blocks → blockquote
-            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
-            sed -i 's/{% hint %}/> **NOTE:** /g' "$file"
+            # Hints → blockquotes
+            sed -i 's/{% hint style="[^"]*" %}/> **TIP** /g' "$file"
+            sed -i 's/{% hint %}/> **NOTE** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
 
-            # Remove Liquid/Handlebars-style variables
+            # Remove variables / frontmatter noise
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Convert YouTube embeds (most common cases)
-            # You can extend this regex if you have other embed formats
-            perl -i -pe '
-              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([^"&]+)[^"]*"\s*%?}/
-                "<iframe width=\"560\" height=\"315\" src=\"https:\/\/www.youtube.com\/embed\/$1\" frameborder=\"0\" allowfullscreen><\/iframe>"/gex;
+            # Convert common YouTube embed syntaxes to <iframe>
+            # Add more patterns if your embeds use different formats
+            perl -0777 -i -pe '
+              s/{%\s*embed\s+url\s*=\s*"(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:[^"]*)?)"\s*%?}/
+                "<iframe width=\"560\" height=\"315\" src=\"https:\/\/www.youtube.com\/embed\/$2\" frameborder=\"0\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen><\/iframe>"/gix;
 
-              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([^"]+)"\s*%?}/
-                "<iframe width=\"560\" height=\"315\" src=\"https:\/\/www.youtube.com\/embed\/$1\" frameborder=\"0\" allowfullscreen><\/iframe>"/gex;
-
-              # Fallback: remove any remaining {% embed ... %} tags
+              # Fallback: remove any remaining {% embed ... %} completely
               s/{%\s*embed[^%]*%}//g;
             ' "$file"
           done
+
+      - name: Debug – check if any embed tags remain
+        run: |
+          echo "Remaining {% embed %} tags:"
+          grep -r --include="*.md" -F "{% embed" . || echo "→ None found – good!"
 
       - name: Build GitBook
         run: |
@@ -138,10 +132,8 @@ jobs:
           gitbook build --verbose
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4  # updated to latest
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
           force_orphan: true
-          # Optional: set a custom domain if you have one
-          # cname: docs.yourdomain.com
