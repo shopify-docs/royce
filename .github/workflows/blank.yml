@@ -1,4 +1,5 @@
 name: Build and Deploy GitBook
+
 on:
   push:
     branches: [main]
@@ -9,41 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '10'
 
-      - name: Install GitBook
+      - name: Install GitBook CLI
         run: |
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
-
-      - name: Validate and create missing files
-        run: |
-          if [ ! -f "SUMMARY.md" ]; then
-            echo "# Summary" > SUMMARY.md
-            echo "" >> SUMMARY.md
-            for file in *.md **/*.md; do
-              if [[ "$file" != "README.md" && "$file" != "SUMMARY.md" ]]; then
-                title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                echo "* [$title]($file)" >> SUMMARY.md
-              fi
-            done
-          fi
-          if [ -f "SUMMARY.md" ]; then
-            grep -oP '\(\K[^)]+\.md(?=\))' SUMMARY.md | while read -r file; do
-              if [ ! -f "$file" ]; then
-                title=$(basename "$file" .md | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                mkdir -p "$(dirname "$file")"
-                echo "# $title" > "$file"
-                echo "" >> "$file"
-                echo "This page is under construction." >> "$file"
-              fi
-            done
-          fi
 
       - name: Create book.json
         run: |
@@ -66,15 +43,15 @@ jobs:
           }
           EOF
 
-      - name: Add styles (Font Awesome + video/iframe styling)
+      - name: Create custom styles (better video display)
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
           @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
 
-          iframe, video {
+          video, iframe {
             display: block;
-            margin: 24px auto;
+            margin: 1.5em auto;
             max-width: 100%;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
@@ -82,76 +59,46 @@ jobs:
 
           video {
             width: 100%;
-            max-width: 800px;
+            max-width: 900px;
           }
 
           .markdown-section blockquote {
-            border-left: 4px solid #007acc;
-            background: #f8f9fa;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 4px;
-          }
-
-          .markdown-section blockquote p:first-child {
-            margin-top: 0;
-          }
-
-          .markdown-section blockquote p:last-child {
-            margin-bottom: 0;
+            border-left: 4px solid #0066cc;
+            background-color: #f8fbff;
+            padding: 1rem 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 6px;
           }
           EOF
 
-      - name: Preprocess markdown files – convert embeds to <video> or <iframe>
+      - name: Preprocess markdown - convert GitBook embeds to playable video / iframe
         run: |
           find . -type f -name "*.md" | while read -r file; do
-            echo "Preprocessing: $file"
+            echo "Processing file: $file"
 
-            # Convert {% embed url="..." %} → <video> for .mp4/.webm/.ogv or <iframe> for YouTube
-            perl -0777 -i -pe '
-              s{
-                \{\%\s*embed\s+url\s*=\s*["'"'"']?
-                (https?://[^"'"'"'\s%]+(?:\.mp4|\.webm|\.ogv)[^"'"'"'\s%]*)
-                ["'"'"']?\s*\%\}
-              }{
-                <video controls width="100%" style="max-width:800px;">
-                  <source src="$1" type="video/mp4">
-                  Your browser does not support the video tag.
-                </video>
-              }gix;
+            # Convert {% embed url="..." %} containing .mp4/.webm/.ogv to <video> tag
+            sed -i -E 's/\{%\s*embed\s+url="([^"]*\.(mp4|webm|ogv)[^"]*)"[^%]*%\}/<video controls preload="metadata" width="100%"><source src="\1" type="video\/mp4">Your browser does not support the video tag.<\/video>/g' "$file"
 
-              s{
-                \{\%\s*embed\s+url\s*=\s*["'"'"']?
-                (https?://(?:www\\.)?(?:youtube\.com/watch\\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})(?:[^"'"'"'\s%]*))
-                ["'"'"']?\s*\%\}
-              }{
-                <iframe width="560" height="315" src="https://www.youtube.com/embed/$2" frameborder="0" allowfullscreen></iframe>
-              }gix;
+            # Convert YouTube embeds (if any exist)
+            sed -i -E 's/\{%\s*embed\s+url=".*(youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11}).*%\}/<iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/\2" title="YouTube video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/g' "$file"
 
-              # Remove any leftover embed tags
-              s/\{\%\s*embed[^%]*\%\}//g;
-              s/\{\%\s*end[^%]*\%\}//g;
-            ' "$file"
+            # Remove any remaining {% embed ... %} tags (safety net)
+            sed -i 's/\{%\s*embed[^%]*%\}//g' "$file"
+            sed -i 's/\{%\s*end[^%]*%\}//g' "$file"
 
-            # Hint blocks
-            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
-            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
+            # Optional: convert hints (if you have them)
+            sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
+            sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
 
-            # Remove variables
+            # Remove variables / placeholders
             sed -i 's/{{[^}]*}}//g' "$file"
-
-            # (Optional) Add simple frontmatter if you still want it
-            # Comment out the block below if you don't need icon frontmatter anymore
-            if ! grep -q '^---' "$file"; then
-              echo -e "---\n---\n$(cat "$file")" > "$file"
-            fi
           done
 
-      - name: Debug – check for remaining embed tags
+      - name: Debug - check if embed tags still exist
         run: |
-          echo "Remaining {% embed %} tags:"
-          grep -r --include="*.md" -F "{% embed" . || echo "None found – good!"
+          echo "Checking for remaining {% embed %} tags..."
+          grep -r --include="*.md" -i "{%.*embed" . || echo "No embed tags remaining - good!"
 
       - name: Build GitBook
         run: |
@@ -159,7 +106,7 @@ jobs:
           gitbook build --verbose
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
