@@ -69,20 +69,26 @@ jobs:
             sed -i 's/{% endhint %}/\n/g' "$file"
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Convert YouTube embeds to iframe
-            awk '
-              {
-                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
-                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
-                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen></iframe>"
-                } else if ($0 ~ /{% embed url="https:\/\/www\.youtube\.com\/watch\?v=[^"]+" %}/) {
-                  match($0, /{% embed url="https:\/\/www\.youtube\.com\/watch\?v=([^"&]+).*%}/, arr)
-                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen></iframe>"
-                } else {
-                  print $0
-                }
-              }
-            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            # Replace YouTube and MP4 embeds
+            perl -0777 -i -pe '
+              # YouTube watch URLs
+              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
+              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+
+              # YouTube short URLs
+              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
+              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+
+              # MP4 embeds
+              s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
+              <video controls style="width:100%;border-radius:10px;margin-top:15px;">
+              <source src="$1" type="video\/mp4">
+              Your browser does not support video.
+              <\/video>/gs;
+            ' "$file"
+
+            # Remove any leftover embed tags
+            sed -i 's/{%.*embed.*%}//g' "$file"
           done
 
       - name: Add Font Awesome and layout styles
