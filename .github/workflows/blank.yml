@@ -14,7 +14,7 @@ jobs:
 
     steps:
       # -----------------------------
-      # Checkout
+      # Checkout repository
       # -----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,10 +25,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '10'
+          node-version: "10"
 
       # -----------------------------
-      # Install GitBook
+      # Install GitBook + Plugins
       # -----------------------------
       - name: Install GitBook
         run: |
@@ -38,7 +38,7 @@ jobs:
       # -----------------------------
       # Auto Create SUMMARY.md
       # -----------------------------
-      - name: Validate and create missing SUMMARY
+      - name: Validate and create SUMMARY.md
         run: |
           if [ ! -f "SUMMARY.md" ]; then
             echo "# Summary" > SUMMARY.md
@@ -62,7 +62,8 @@ jobs:
             "plugins": [
               "-search",
               "fontsettings",
-              "theme-default"
+              "theme-default",
+              "html"
             ],
             "pluginsConfig": {
               "fontsettings": {
@@ -76,13 +77,13 @@ jobs:
           EOF
 
       # -----------------------------
-      # Markdown Preprocessing
+      # Preprocess Markdown
       # -----------------------------
       - name: Preprocess markdown files
         run: |
           find . -type f -name "*.md" | while read -r file; do
 
-            # Remove GitBook hints
+            # Remove GitBook hint blocks
             sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
             sed -i 's/{% hint %}/> **INFO:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
@@ -90,29 +91,18 @@ jobs:
             # Remove template variables
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Remove embed inside code fences (important fix)
-            perl -0777 -i -pe '
-              s/```.*?({%\s*embed.*?%}).*?```/$1/gs;
-            ' "$file"
-
             # Convert embeds
             perl -0777 -i -pe '
 
-              # ------------------
-              # YouTube watch URLs
-              # ------------------
+              # YouTube watch URL
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
 
-              # ------------------
-              # YouTube short URLs
-              # ------------------
+              # YouTube short URL
               s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
 
-              # ------------------
-              # MP4 embeds FIXED
-              # ------------------
+              # MP4 embeds
               s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
               <video controls style="width:100%;border-radius:10px;margin-top:15px;"><source src="$1" type="video\/mp4">Your browser does not support video.<\/video>/gs;
 
@@ -126,14 +116,17 @@ jobs:
       # -----------------------------
       # Add Styling
       # -----------------------------
-      - name: Add layout styles
+      - name: Add custom styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
-          iframe, video {
+          .markdown-section iframe,
+          .markdown-section video {
+            width: 100%;
+            aspect-ratio: 16/9;
+            height: auto;
             display: block;
             margin: 20px auto;
-            max-width: 100%;
           }
 
           .markdown-section blockquote {
