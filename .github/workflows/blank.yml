@@ -13,20 +13,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # -----------------------------
+      # Checkout
+      # -----------------------------
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
+      # -----------------------------
+      # Setup Node
+      # -----------------------------
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '10'
 
+      # -----------------------------
+      # Install GitBook
+      # -----------------------------
       - name: Install GitBook
         run: |
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      - name: Validate and create missing files
+      # -----------------------------
+      # Auto Create SUMMARY.md
+      # -----------------------------
+      - name: Validate and create missing SUMMARY
         run: |
           if [ ! -f "SUMMARY.md" ]; then
             echo "# Summary" > SUMMARY.md
@@ -39,11 +51,14 @@ jobs:
             done
           fi
 
-      - name: Create book.json with styles and plugins
+      # -----------------------------
+      # Create book.json
+      # -----------------------------
+      - name: Create book.json
         run: |
           cat << 'EOF' > book.json
           {
-            "title": "Your Documentation",
+            "title": "Documentation",
             "plugins": [
               "-search",
               "fontsettings",
@@ -60,51 +75,67 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files (hints + embeds)
+      # -----------------------------
+      # Markdown Preprocessing
+      # -----------------------------
+      - name: Preprocess markdown files
         run: |
           find . -type f -name "*.md" | while read -r file; do
-            # Replace hint blocks
+
+            # Remove GitBook hints
             sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
             sed -i 's/{% hint %}/> **INFO:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
+
+            # Remove template variables
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Replace YouTube + MP4 embeds
+            # Remove embed inside code fences (important fix)
             perl -0777 -i -pe '
-              # YouTube watch URLs
-              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
-
-              # YouTube short URLs
-              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
-
-              # MP4 embeds (GitBook file URLs)
-              s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
-              <video controls style="width:100%;border-radius:10px;margin-top:15px;">
-              <source src="$1" type="video\/mp4">
-              Your browser does not support video.
-              <\/video>/gs;
+              s/```.*?({%\s*embed.*?%}).*?```/$1/gs;
             ' "$file"
 
-            # Remove any leftover embed tags
+            # Convert embeds
+            perl -0777 -i -pe '
+
+              # ------------------
+              # YouTube watch URLs
+              # ------------------
+              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+
+              # ------------------
+              # YouTube short URLs
+              # ------------------
+              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+
+              # ------------------
+              # MP4 embeds FIXED
+              # ------------------
+              s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
+              <video controls style="width:100%;border-radius:10px;margin-top:15px;"><source src="$1" type="video\/mp4">Your browser does not support video.<\/video>/gs;
+
+            ' "$file"
+
+            # Remove leftover embed tags
             sed -i 's/{%.*embed.*%}//g' "$file"
+
           done
 
+      # -----------------------------
+      # Add Styling
+      # -----------------------------
       - name: Add layout styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
-          iframe {
+          iframe, video {
             display: block;
             margin: 20px auto;
             max-width: 100%;
           }
-          video {
-            display: block;
-            margin: 20px auto;
-            max-width: 100%;
-          }
+
           .markdown-section blockquote {
             border-left: 4px solid #007acc;
             background: #f8f9fa;
@@ -114,11 +145,17 @@ jobs:
           }
           EOF
 
+      # -----------------------------
+      # Build GitBook
+      # -----------------------------
       - name: Build GitBook
         run: |
-          gitbook install --verbose
-          gitbook build --verbose
+          gitbook install
+          gitbook build
 
+      # -----------------------------
+      # Deploy to GitHub Pages
+      # -----------------------------
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
