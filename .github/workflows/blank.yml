@@ -27,78 +27,56 @@ jobs:
           cat << 'EOF' > book.json
           {
             "title": "Your Documentation",
-            "plugins": [
-              "-search",
-              "fontsettings",
-              "theme-default"
-            ],
+            "plugins": ["-search", "fontsettings", "theme-default"],
             "pluginsConfig": {
-              "fontsettings": {
-                "theme": "white"
-              }
+              "fontsettings": { "theme": "white" }
             },
-            "styles": {
-              "website": "styles/website.css"
-            }
+            "styles": { "website": "styles/website.css" }
           }
           EOF
 
-      - name: Create custom styles (better video display)
+      - name: Create custom styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
-          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
-
           video, iframe {
             display: block;
-            margin: 1.5em auto;
+            margin: 24px auto;
             max-width: 100%;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           }
-
           video {
             width: 100%;
             max-width: 900px;
           }
-
-          .markdown-section blockquote {
-            border-left: 4px solid #0066cc;
-            background-color: #f8fbff;
-            padding: 1rem 1.5rem;
-            margin: 1.5rem 0;
-            border-radius: 6px;
-          }
           EOF
 
-      - name: Preprocess markdown - convert GitBook embeds to playable video / iframe
+      - name: Preprocess markdown files – convert embeds to playable video/iframe
         run: |
           find . -type f -name "*.md" | while read -r file; do
             echo "Processing file: $file"
 
-            # Convert {% embed url="..." %} containing .mp4/.webm/.ogv to <video> tag
-            sed -i -E 's/\{%\s*embed\s+url="([^"]*\.(mp4|webm|ogv)[^"]*)"[^%]*%\}/<video controls preload="metadata" width="100%"><source src="\1" type="video\/mp4">Your browser does not support the video tag.<\/video>/g' "$file"
+            sed -i 's/{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}/<video controls preload="metadata" width="100%"><source src="\1" type="video\/mp4">Your browser does not support the video tag.<\/video>/g' "$file"
 
-            # Convert YouTube embeds (if any exist)
-            sed -i -E 's/\{%\s*embed\s+url=".*(youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11}).*%\}/<iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/\2" title="YouTube video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/g' "$file"
+            sed -i 's/{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.\(webm\|ogv\)[^"]*\)"[^%]*%}/<video controls preload="metadata" width="100%"><source src="\1">Your browser does not support the video tag.<\/video>/g' "$file"
 
-            # Remove any remaining {% embed ... %} tags (safety net)
-            sed -i 's/\{%\s*embed[^%]*%\}//g' "$file"
-            sed -i 's/\{%\s*end[^%]*%\}//g' "$file"
+            sed -i 's/{%[[:space:]]*embed[[:space:]]\+url=".*\(youtube\.com\/watch?v=\|youtu\.be\/\)\([a-zA-Z0-9_-]\{11\}\).*%}/<iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/\2" frameborder="0" allowfullscreen><\/iframe>/g' "$file"
 
-            # Optional: convert hints (if you have them)
+            sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
+            sed -i 's/{%[[:space:]]*end[^%]*%}//g' "$file"
+
             sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
             sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
 
-            # Remove variables / placeholders
             sed -i 's/{{[^}]*}}//g' "$file"
           done
 
-      - name: Debug - check if embed tags still exist
+      - name: Debug - check remaining embeds
         run: |
-          echo "Checking for remaining {% embed %} tags..."
-          grep -r --include="*.md" -i "{%.*embed" . || echo "No embed tags remaining - good!"
+          echo "Remaining embed tags:"
+          grep -r --include="*.md" -i "{%.*embed" . || echo "None found - good!"
 
       - name: Build GitBook
         run: |
