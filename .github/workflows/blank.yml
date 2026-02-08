@@ -13,47 +13,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -----------------------------
-      # Checkout repository
-      # -----------------------------
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # -----------------------------
-      # Setup Node
-      # -----------------------------
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "10"
 
-      # -----------------------------
-      # Install GitBook + Plugins
-      # -----------------------------
       - name: Install GitBook
         run: |
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      # -----------------------------
-      # Auto Create SUMMARY.md
-      # -----------------------------
-      - name: Validate and create SUMMARY.md
-        run: |
-          if [ ! -f "SUMMARY.md" ]; then
-            echo "# Summary" > SUMMARY.md
-            echo "" >> SUMMARY.md
-            for file in *.md; do
-              if [ "$file" != "README.md" ] && [ "$file" != "SUMMARY.md" ]; then
-                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                echo "* [$title]($file)" >> SUMMARY.md
-              fi
-            done
-          fi
-
-      # -----------------------------
-      # Create book.json
-      # -----------------------------
       - name: Create book.json
         run: |
           cat << 'EOF' > book.json
@@ -62,97 +32,43 @@ jobs:
             "plugins": [
               "-search",
               "fontsettings",
-              "theme-default",
-              "html"
-            ],
-            "pluginsConfig": {
-              "fontsettings": {
-                "theme": "white"
-              }
-            },
-            "styles": {
-              "website": "styles/website.css"
-            }
+              "theme-default"
+            ]
           }
           EOF
 
-      # -----------------------------
-      # Preprocess Markdown
-      # -----------------------------
-      - name: Preprocess markdown files
+      - name: Preprocess markdown
         run: |
           find . -type f -name "*.md" | while read -r file; do
 
-            # Remove GitBook hint blocks
-            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
-            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
-            sed -i 's/{% endhint %}/\n/g' "$file"
-
-            # Remove template variables
-            sed -i 's/{{[^}]*}}//g' "$file"
-
-            # Convert embeds
             perl -0777 -i -pe '
 
-              # YouTube watch URL
+              # YouTube
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
 
-              # YouTube short URL
-              s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+<iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>
 
-              # MP4 embeds
+/gs;
+
+              # MP4
               s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
-              <video controls style="width:100%;border-radius:10px;margin-top:15px;"><source src="$1" type="video\/mp4">Your browser does not support video.<\/video>/gs;
+
+<video controls style="width:100%;"><source src="$1" type="video\/mp4"><\/video>
+
+/gs;
 
             ' "$file"
 
-            # Remove leftover embed tags
-            sed -i 's/{%.*embed.*%}//g' "$file"
-
           done
 
-      # -----------------------------
-      # Add Styling
-      # -----------------------------
-      - name: Add custom styles
-        run: |
-          mkdir -p styles
-          cat << 'EOF' > styles/website.css
-          .markdown-section iframe,
-          .markdown-section video {
-            width: 100%;
-            aspect-ratio: 16/9;
-            height: auto;
-            display: block;
-            margin: 20px auto;
-          }
-
-          .markdown-section blockquote {
-            border-left: 4px solid #007acc;
-            background: #f8f9fa;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 4px;
-          }
-          EOF
-
-      # -----------------------------
-      # Build GitBook
-      # -----------------------------
       - name: Build GitBook
         run: |
           gitbook install
           gitbook build
 
-      # -----------------------------
-      # Deploy to GitHub Pages
-      # -----------------------------
-      - name: Deploy to GitHub Pages
+      - name: Deploy Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
-          publish_branch: gh-pages
           force: true
