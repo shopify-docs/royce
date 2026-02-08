@@ -23,15 +23,17 @@ jobs:
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      - name: Generate clean book.json with correct base path
+      - name: Generate clean book.json with base path
         run: |
+          # Extract repo name (e.g. "royce")
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          echo "Repository name detected: $REPO_NAME"
+          echo "Using base path: /$REPO_NAME"
 
-          cat > book.json << EOF
+          # Generate fresh, valid book.json
+          cat > book.json << 'END_OF_JSON'
           {
             "title": "Your Documentation",
-            "base": "/$REPO_NAME",
+            "base": "/'"$REPO_NAME"'",
             "plugins": [
               "-search",
               "fontsettings",
@@ -46,12 +48,12 @@ jobs:
               "website": "styles/website.css"
             }
           }
-          EOF
+          END_OF_JSON
 
-          echo "Generated book.json content:"
+          echo "Generated book.json:"
           cat book.json
 
-      - name: Create custom styles (for videos and layout)
+      - name: Create styles/website.css
         run: |
           mkdir -p styles
           cat > styles/website.css << 'EOF'
@@ -75,37 +77,37 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown – convert embeds to playable video/iframe
+      - name: Preprocess markdown files – fix embeds
         run: |
           find . -type f -name "*.md" | while read -r file; do
-            echo "Processing: $file"
+            echo "Processing $file"
 
-            # Convert GitBook .mp4 embed → HTML5 <video>
+            # Convert .mp4 embeds to <video>
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}|<video controls preload="metadata" width="100%"><source src="\1" type="video/mp4">Your browser does not support video.</video>|g' "$file"
 
-            # Convert YouTube embeds (fallback)
+            # Convert YouTube embeds
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url=".*\(youtube\.com\/watch?v=\|youtu\.be\/\)\([a-zA-Z0-9_-]\{11\}\).*%}|<iframe width="560" height="315" src="https://www.youtube.com/embed/\2" frameborder="0" allowfullscreen></iframe>|g' "$file"
 
-            # Remove any leftover embed tags
+            # Remove leftover embed tags
             sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
             sed -i 's/{%[[:space:]]*end[^%]*%}//g' "$file"
 
-            # Clean hint blocks
+            # Clean hints
             sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
             sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
 
-            # Remove variables/placeholders
+            # Remove variables
             sed -i 's/{{[^}]*}}//g' "$file"
           done
 
-      - name: Debug – check remaining embed tags
+      - name: Debug – check for remaining embed tags
         run: |
           echo "Remaining {% embed %} tags:"
-          grep -r --include="*.md" -i "{%.*embed" . || echo "None found – good!"
+          grep -r --include="*.md" -i "{%.*embed" . || echo "None found"
           echo ""
-          echo "Sample lines from problematic file:"
-          sed -n '20,30p' how-to-instal-theme/how-to-navigate-to-blocks-in-3.0.md || echo "File not found"
+          echo "Snippet from how-to-navigate-to-blocks-in-3.0.md:"
+          sed -n '20,30p' how-to-instal-theme/how-to-navigate-to-blocks-in-3.0.md || echo "Not found"
 
       - name: Build GitBook
         run: |
