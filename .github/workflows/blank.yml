@@ -6,9 +6,7 @@ on:
       - main
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 jobs:
   build:
@@ -23,7 +21,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 10  # Node 10 is deprecated
+          node-version: 10
 
       # Install GitBook CLI
       - name: Install GitBook CLI
@@ -39,15 +37,26 @@ jobs:
             -not -path "./_book/*" \
             | while read -r file; do
             echo "Processing $file"
+
+            # Remove GitBook variables {{ }}
             sed -i 's/{{[^}]*}}//g' "$file"
+
+            # Convert Hint Blocks
             sed -i '/{% hint style="[^"]*" %}/,/{% endhint %}/c\> **TIP:**' "$file" || true
             sed -i '/{% hint %}/,/{% endhint %}/c\> **INFO:**' "$file" || true
             sed -i 's/{% endhint %}/\n\n/g' "$file"
+
+            # Convert Embeds (YouTube → iframe, MP4 → video)
             perl -0777 -i -pe '
+              # YouTube Watch URL
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
+
+              # YouTube Short URL
               s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
+
+              # MP4 Videos
               s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
               <video controls style="width:100%;border-radius:10px;margin-top:15px;">
               <source src="$1" type="video\/mp4">
@@ -73,20 +82,10 @@ jobs:
       - name: Build GitBook
         run: gitbook build . ./_book
 
-      # Upload artifact for Pages
-      - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v3
+      # Deploy to gh-pages branch
+      - name: Deploy to GitHub Pages Branch
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          path: ./_book
-          name: github-pages   # critical fix
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_book
+          publish_branch: gh-pages
