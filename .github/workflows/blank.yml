@@ -23,6 +23,12 @@ jobs:
         with:
           node-version: 18
 
+      # Install Pandoc
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
       - name: Preprocess Markdown Files
         run: |
           find . -type f -name "*.md" \
@@ -87,7 +93,6 @@ jobs:
           for file in $(find _site -name "*.html" ! -name "index.html"); do
             name=$(basename "$file")
             echo "<li><a href=\"$name\">$name</a><ul>" >> _site/index.html
-            # Extract H2/H3 headings for nested TOC
             grep -o '<h[23][^>]*>.*</h[23]>' "$file" | sed 's/<[^>]*>//g' | while read heading; do
               echo "<li><a href=\"$name\">$heading</a></li>" >> _site/index.html
             done
