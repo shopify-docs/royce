@@ -13,20 +13,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # Checkout repo
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      # Setup Node
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: "10"
 
+      # Install GitBook
       - name: Install GitBook
         run: |
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
+      # Create book.json
       - name: Create book.json
         run: |
-          cat << 'EOF' > book.json
+          cat > book.json <<EOF
           {
             "title": "Documentation",
             "plugins": [
@@ -37,38 +43,47 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown
+      # Convert GitBook embeds → HTML
+      - name: Convert embed tags
         run: |
-          find . -type f -name "*.md" | while read -r file; do
+          find . -name "*.md" -type f | while read file; do
 
-            perl -0777 -i -pe '
+            # YouTube watch URL
+            sed -i 's|{% embed url="https://www.youtube.com/watch?v=\([a-zA-Z0-9_-]*\)".*%}|
 
-              # YouTube
-              s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
+<iframe width="100%" height="400" src="https://www.youtube.com/embed/\1" frameborder="0" allowfullscreen></iframe>
 
-<iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>
+|g' "$file"
 
-/gs;
+            # YouTube short URL
+            sed -i 's|{% embed url="https://youtu.be/\([a-zA-Z0-9_-]*\)".*%}|
 
-              # MP4
-              s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
+<iframe width="100%" height="400" src="https://www.youtube.com/embed/\1" frameborder="0" allowfullscreen></iframe>
 
-<video controls style="width:100%;"><source src="$1" type="video\/mp4"><\/video>
+|g' "$file"
 
-/gs;
+            # MP4 Video
+            sed -i 's|{% embed url="\([^"]*\.mp4[^"]*\)".*%}|
 
-            ' "$file"
+<video controls style="width:100%;">
+  <source src="\1" type="video/mp4">
+</video>
+
+|g' "$file"
 
           done
 
-      - name: Build GitBook
+      # Build GitBook
+      - name: Build
         run: |
           gitbook install
           gitbook build
 
-      - name: Deploy Pages
+      # Deploy to GitHub Pages
+      - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
+          publish_branch: gh-pages
           force: true
