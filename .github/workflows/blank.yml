@@ -1,4 +1,4 @@
-name: Build and Deploy Docs
+name: Build and Deploy GitBook
 
 on:
   push:
@@ -15,25 +15,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # Setup Node
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 10  # Node 10 is deprecated
 
-      # Install Pandoc
-      - name: Install Pandoc
+      # Install GitBook CLI
+      - name: Install GitBook CLI
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc
+          npm install -g gitbook-cli
+          gitbook install
 
+      # Preprocess Markdown
       - name: Preprocess Markdown Files
         run: |
           find . -type f -name "*.md" \
             -not -path "./node_modules/*" \
-            -not -path "./_site/*" \
+            -not -path "./_book/*" \
             | while read -r file; do
             echo "Processing $file"
             sed -i 's/{{[^}]*}}//g' "$file"
@@ -53,6 +56,7 @@ jobs:
             ' "$file"
           done
 
+      # Verify no embed tags remain
       - name: Verify No Embed Tags Remain
         run: |
           if grep -r "{%.*embed" . \
@@ -60,51 +64,21 @@ jobs:
             --exclude-dir=node_modules \
             --exclude-dir=.git \
             --exclude-dir=.github \
-            --exclude-dir=_site; then
+            --exclude-dir=_book; then
             echo "Embed tags still exist — build stopped."
             exit 1
           fi
 
-      - name: Convert Markdown to HTML with CSS and Sidebar
-        run: |
-          mkdir -p _site
-          # CSS theme
-          cat > style.css <<'EOF'
-          body { font-family: system-ui, sans-serif; margin:0; display:flex; }
-          nav { width:250px; background:#f5f5f5; padding:1rem; height:100vh; overflow-y:auto; }
-          nav ul { list-style:none; padding-left:0; }
-          nav li { margin:0.3em 0; }
-          nav li ul { margin-left:1em; }
-          main { flex:1; padding:2rem; }
-          h1,h2,h3 { margin-top:1.2em; }
-          a { text-decoration:none; color:#0366d6; }
-          EOF
-          cp style.css _site/
+      # Build GitBook
+      - name: Build GitBook
+        run: gitbook build . ./_book
 
-          # Convert each Markdown file
-          for file in $(find . -type f -name "*.md" -not -path "./node_modules/*"); do
-            out="_site/${file%.md}.html"
-            mkdir -p "$(dirname "$out")"
-            pandoc "$file" -f markdown -t html -s -c style.css -o "$out"
-          done
-
-          # Build index.html with nested sidebar from headings
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Docs</title><link rel="stylesheet" href="style.css"></head><body><nav><h3>Contents</h3><ul>' > _site/index.html
-          for file in $(find _site -name "*.html" ! -name "index.html"); do
-            name=$(basename "$file")
-            echo "<li><a href=\"$name\">$name</a><ul>" >> _site/index.html
-            grep -o '<h[23][^>]*>.*</h[23]>' "$file" | sed 's/<[^>]*>//g' | while read heading; do
-              echo "<li><a href=\"$name\">$heading</a></li>" >> _site/index.html
-            done
-            echo "</ul></li>" >> _site/index.html
-          done
-          echo '</ul></nav><main><h1>Welcome</h1><p>Select a page from the sidebar.</p></main></body></html>' >> _site/index.html
-
+      # Upload artifact for Pages
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./_site
-          name: github-pages
+          path: ./_book
+          name: github-pages   # critical fix
 
   deploy:
     needs: build
