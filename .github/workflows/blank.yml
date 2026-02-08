@@ -13,23 +13,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Setup Node
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 10
 
-      # Install GitBook CLI
       - name: Install GitBook CLI
         run: |
           npm install -g gitbook-cli
           gitbook install
 
-      # Preprocess Markdown
       - name: Preprocess Markdown Files
         run: |
           find . -type f -name "*.md" \
@@ -37,26 +33,15 @@ jobs:
             -not -path "./_book/*" \
             | while read -r file; do
             echo "Processing $file"
-
-            # Remove GitBook variables {{ }}
             sed -i 's/{{[^}]*}}//g' "$file"
-
-            # Convert Hint Blocks
             sed -i '/{% hint style="[^"]*" %}/,/{% endhint %}/c\> **TIP:**' "$file" || true
             sed -i '/{% hint %}/,/{% endhint %}/c\> **INFO:**' "$file" || true
             sed -i 's/{% endhint %}/\n\n/g' "$file"
-
-            # Convert Embeds (YouTube → iframe, MP4 → video)
             perl -0777 -i -pe '
-              # YouTube Watch URL
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
-
-              # YouTube Short URL
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
               s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
-
-              # MP4 Videos
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
               s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
               <video controls style="width:100%;border-radius:10px;margin-top:15px;">
               <source src="$1" type="video\/mp4">
@@ -65,7 +50,6 @@ jobs:
             ' "$file"
           done
 
-      # Verify no embed tags remain
       - name: Verify No Embed Tags Remain
         run: |
           if grep -r "{%.*embed" . \
@@ -78,11 +62,9 @@ jobs:
             exit 1
           fi
 
-      # Build GitBook
       - name: Build GitBook
         run: gitbook build . ./_book
 
-      # Deploy to gh-pages branch
       - name: Deploy to GitHub Pages Branch
         uses: peaceiris/actions-gh-pages@v3
         with:
