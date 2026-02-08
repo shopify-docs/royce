@@ -27,15 +27,23 @@ jobs:
           cat << 'EOF' > book.json
           {
             "title": "Your Documentation",
-            "plugins": ["-search", "fontsettings", "theme-default"],
+            "plugins": [
+              "-search",
+              "fontsettings",
+              "theme-default"
+            ],
             "pluginsConfig": {
-              "fontsettings": { "theme": "white" }
+              "fontsettings": {
+                "theme": "white"
+              }
             },
-            "styles": { "website": "styles/website.css" }
+            "styles": {
+              "website": "styles/website.css"
+            }
           }
           EOF
 
-      - name: Create custom styles
+      - name: Add styles for video/iframe
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
@@ -52,31 +60,44 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files – convert embeds to playable video/iframe
+      - name: Preprocess markdown files - REMOVE & CONVERT embeds
         run: |
           find . -type f -name "*.md" | while read -r file; do
-            echo "Processing file: $file"
+            echo "Processing: $file"
 
-            sed -i 's/{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}/<video controls preload="metadata" width="100%"><source src="\1" type="video\/mp4">Your browser does not support the video tag.<\/video>/g' "$file"
+            # Layer 1: Try to convert .mp4 embeds to <video> tag
+            sed -i 's|{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}|<video controls preload="metadata" width="100%"><source src="\1" type="video/mp4">Your browser does not support video.</video>|g' "$file"
 
-            sed -i 's/{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.\(webm\|ogv\)[^"]*\)"[^%]*%}/<video controls preload="metadata" width="100%"><source src="\1">Your browser does not support the video tag.<\/video>/g' "$file"
-
-            sed -i 's/{%[[:space:]]*embed[[:space:]]\+url=".*\(youtube\.com\/watch?v=\|youtu\.be\/\)\([a-zA-Z0-9_-]\{11\}\).*%}/<iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/\2" frameborder="0" allowfullscreen><\/iframe>/g' "$file"
-
+            # Layer 2: Remove ANY remaining {% embed ... %} (very aggressive)
             sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
+            sed -i 's/{%.*embed.*%}//g' "$file"
+
+            # Layer 3: Remove possible {% endembed %} or similar
             sed -i 's/{%[[:space:]]*end[^%]*%}//g' "$file"
 
+            # Layer 4: Multi-line safety (if embed spans lines - rare but possible)
+            sed -i '/{%[[:space:]]*embed/,/%}/d' "$file" 2>/dev/null || true
+
+            # Other cleanups
             sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
             sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
-
             sed -i 's/{{[^}]*}}//g' "$file"
           done
 
-      - name: Debug - check remaining embeds
+      - name: Debug - MUST show NO embed tags remain
         run: |
-          echo "Remaining embed tags:"
-          grep -r --include="*.md" -i "{%.*embed" . || echo "None found - good!"
+          echo "=== IMPORTANT DEBUG ==="
+          echo "Looking for any leftover {% embed tags"
+          if grep -r --include="*.md" -i "{%.*embed" .; then
+            echo "ERROR: Embed tags still exist - see above lines"
+            exit 1
+          else
+            echo "SUCCESS: No embed tags found in any .md file"
+          fi
+          echo ""
+          echo "Content snippet from problematic file (should NOT show embed tag):"
+          sed -n '20,30p' how-to-instal-theme/how-to-navigate-to-blocks-in-3.0.md || echo "File not found"
 
       - name: Build GitBook
         run: |
