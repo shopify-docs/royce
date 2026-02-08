@@ -73,13 +73,13 @@ jobs:
             perl -0777 -i -pe '
               # YouTube watch URLs
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
 
               # YouTube short URLs
               s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
 
-              # MP4 embeds
+              # MP4 embeds (GitBook file URLs)
               s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
               <video controls style="width:100%;border-radius:10px;margin-top:15px;">
               <source src="$1" type="video\/mp4">
@@ -96,6 +96,11 @@ jobs:
           mkdir -p styles
           cat << 'EOF' > styles/website.css
           iframe {
+            display: block;
+            margin: 20px auto;
+            max-width: 100%;
+          }
+          video {
             display: block;
             margin: 20px auto;
             max-width: 100%;
