@@ -23,7 +23,7 @@ jobs:
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      - name: Create basic styles (no book.json needed)
+      - name: Create basic styles
         run: |
           mkdir -p styles
           cat > styles/website.css << 'EOF'
@@ -47,22 +47,22 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files (fix embeds & hints)
+      - name: Preprocess markdown files
         run: |
           find . -type f -name "*.md" | while read -r file; do
-            echo "→ Processing $file"
+            echo "Processing $file"
 
             # Convert mp4 embed to <video> player
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}|<video controls preload="metadata" width="100%"><source src="\1" type="video/mp4">Your browser does not support video.</video>|g' "$file"
 
-            # Convert YouTube embed
+            # Convert YouTube embed (if any)
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url=".*\(youtube\.com\/watch?v=\|youtu\.be\/\)\([a-zA-Z0-9_-]\{11\}\).*%}|<iframe width="560" height="315" src="https://www.youtube.com/embed/\2" frameborder="0" allowfullscreen></iframe>|g' "$file"
 
-            # Remove any remaining embed tags
+            # Remove any leftover embed tags
             sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
             sed -i 's/{%[[:space:]]*end[^%]*%}//g' "$file"
 
-            # Hints to notes
+            # Convert hints
             sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
             sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
@@ -73,13 +73,14 @@ jobs:
 
       - name: Debug remaining embed tags
         run: |
-          echo "Remaining embed tags:"
-          grep -r --include="*.md" -i "{%.*embed" . || echo "None found"
-          echo ""
-          echo "Snippet from problem file:"
-          sed -n '20,30p' how-to-instal-theme/how-to-navigate-to-blocks-in-3.0.md || echo "Not found"
+          echo "Remaining {% embed %} tags:"
+          grep -r --include="*.md" -i "{%.*embed" . || echo "None found - good!"
 
-      - name: Build GitBook (no book.json)
+          echo ""
+          echo "Snippet from problematic file (lines 20-30):"
+          sed -n '20,30p' how-to-instal-theme/how-to-navigate-to-blocks-in-3.0.md || echo "File not found"
+
+      - name: Build GitBook
         run: |
           gitbook install --verbose
           gitbook build --verbose
