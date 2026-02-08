@@ -23,18 +23,16 @@ jobs:
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      - name: Generate valid book.json with correct base path
+      - name: Generate valid book.json
         run: |
-          # Get repository name (e.g. "royce")
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          echo "Detected repo name: $REPO_NAME"
-          BASE="/$REPO_NAME"
+          echo "Repo name: $REPO_NAME"
 
-          # Create completely fresh and valid book.json
-          cat > book.json << 'EOT'
+          # Create valid JSON - use double quotes heredoc so $REPO_NAME gets replaced
+          cat > book.json << EOF
           {
             "title": "Your Documentation",
-            "base": "$BASE",
+            "base": "/$REPO_NAME",
             "plugins": [
               "-search",
               "fontsettings",
@@ -49,11 +47,14 @@ jobs:
               "website": "styles/website.css"
             }
           }
-          EOT
+          EOF
 
-          # Show what was generated (for debugging)
-          echo "Generated book.json:"
+          echo "Generated book.json content:"
           cat book.json
+
+          # Quick validation - will fail if invalid JSON
+          python3 -c 'import json; json.load(open("book.json"))' || { echo "JSON is invalid!"; exit 1; }
+          echo "JSON validation passed"
 
       - name: Create styles/website.css
         run: |
@@ -79,34 +80,24 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files - fix embeds
+      - name: Preprocess markdown files
         run: |
           find . -type f -name "*.md" | while read -r file; do
             echo "Processing $file"
 
-            # Convert .mp4 embeds → <video> player
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}|<video controls preload="metadata" width="100%"><source src="\1" type="video/mp4">Your browser does not support video.</video>|g' "$file"
 
-            # Convert YouTube embeds (if any)
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url=".*\(youtube\.com\/watch?v=\|youtu\.be\/\)\([a-zA-Z0-9_-]\{11\}\).*%}|<iframe width="560" height="315" src="https://www.youtube.com/embed/\2" frameborder="0" allowfullscreen></iframe>|g' "$file"
 
-            # Remove leftover embed tags
             sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
             sed -i 's/{%[[:space:]]*end[^%]*%}//g' "$file"
 
-            # Hint blocks
             sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
             sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
 
-            # Remove variables
             sed -i 's/{{[^}]*}}//g' "$file"
           done
-
-      - name: Debug - verify embeds are gone
-        run: |
-          echo "Remaining {% embed %} tags:"
-          grep -r --include="*.md" -i "{%.*embed" . || echo "None found – good!"
 
       - name: Build GitBook
         run: |
