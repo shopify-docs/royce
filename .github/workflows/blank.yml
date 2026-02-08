@@ -1,4 +1,4 @@
-name: Build and Deploy GitBook
+name: Build and Deploy Docs
 
 on:
   push:
@@ -15,72 +15,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -------------------------------
-      # Checkout Repo
-      # -------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # -------------------------------
-      # Setup Node + GitBook
-      # -------------------------------
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 10
+          node-version: 18
 
-      - name: Install GitBook CLI
-        run: |
-          npm install -g gitbook-cli
-          gitbook install
-
-      # -------------------------------
-      # PREPROCESS MARKDOWN
-      # -------------------------------
       - name: Preprocess Markdown Files
         run: |
           find . -type f -name "*.md" \
             -not -path "./node_modules/*" \
-            -not -path "./_book/*" \
+            -not -path "./_site/*" \
             | while read -r file; do
-
             echo "Processing $file"
-
-            # Remove GitBook variables {{ }}
             sed -i 's/{{[^}]*}}//g' "$file"
-
-            # -------------------------------
-            # Convert Hint Blocks
-            # -------------------------------
             sed -i '/{% hint style="[^"]*" %}/,/{% endhint %}/c\> **TIP:**' "$file" || true
             sed -i '/{% hint %}/,/{% endhint %}/c\> **INFO:**' "$file" || true
             sed -i 's/{% endhint %}/\n\n/g' "$file"
-
-            # -------------------------------
-            # Convert ALL Embed Types
-            # -------------------------------
             perl -0777 -i -pe '
-              # YouTube Watch URL
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
-
-              # YouTube Short URL
               s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
               <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allowfullscreen><\/iframe>/gs;
-
-              # MP4 Videos
               s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
               <video controls style="width:100%;border-radius:10px;margin-top:15px;">
               <source src="$1" type="video\/mp4">
               Your browser does not support video.
               <\/video>/gs;
             ' "$file"
-
           done
 
-      # -------------------------------
-      # VERIFY EMBEDS REMOVED (Markdown Only)
-      # -------------------------------
       - name: Verify No Embed Tags Remain
         run: |
           if grep -r "{%.*embed" . \
@@ -88,36 +54,59 @@ jobs:
             --exclude-dir=node_modules \
             --exclude-dir=.git \
             --exclude-dir=.github \
-            --exclude-dir=_book; then
+            --exclude-dir=_site; then
             echo "Embed tags still exist — build stopped."
             exit 1
           fi
 
-      # -------------------------------
-      # BUILD GITBOOK
-      # -------------------------------
-      - name: Build GitBook
-        run: gitbook build . ./_book
+      - name: Convert Markdown to HTML with CSS and Sidebar
+        run: |
+          mkdir -p _site
+          # CSS theme
+          cat > style.css <<'EOF'
+          body { font-family: system-ui, sans-serif; margin:0; display:flex; }
+          nav { width:250px; background:#f5f5f5; padding:1rem; height:100vh; overflow-y:auto; }
+          nav ul { list-style:none; padding-left:0; }
+          nav li { margin:0.3em 0; }
+          nav li ul { margin-left:1em; }
+          main { flex:1; padding:2rem; }
+          h1,h2,h3 { margin-top:1.2em; }
+          a { text-decoration:none; color:#0366d6; }
+          EOF
+          cp style.css _site/
 
-      # -------------------------------
-      # Upload GitHub Pages Artifact
-      # -------------------------------
+          # Convert each Markdown file
+          for file in $(find . -type f -name "*.md" -not -path "./node_modules/*"); do
+            out="_site/${file%.md}.html"
+            mkdir -p "$(dirname "$out")"
+            pandoc "$file" -f markdown -t html -s -c style.css -o "$out"
+          done
+
+          # Build index.html with nested sidebar from headings
+          echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Docs</title><link rel="stylesheet" href="style.css"></head><body><nav><h3>Contents</h3><ul>' > _site/index.html
+          for file in $(find _site -name "*.html" ! -name "index.html"); do
+            name=$(basename "$file")
+            echo "<li><a href=\"$name\">$name</a><ul>" >> _site/index.html
+            # Extract H2/H3 headings for nested TOC
+            grep -o '<h[23][^>]*>.*</h[23]>' "$file" | sed 's/<[^>]*>//g' | while read heading; do
+              echo "<li><a href=\"$name\">$heading</a></li>" >> _site/index.html
+            done
+            echo "</ul></li>" >> _site/index.html
+          done
+          echo '</ul></nav><main><h1>Welcome</h1><p>Select a page from the sidebar.</p></main></body></html>' >> _site/index.html
+
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./_book
+          path: ./_site
+          name: github-pages
 
-  # -------------------------------
-  # DEPLOY JOB
-  # -------------------------------
   deploy:
     needs: build
     runs-on: ubuntu-latest
-
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
-
     steps:
       - name: Deploy to GitHub Pages
         id: deploy
