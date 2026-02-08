@@ -23,17 +23,16 @@ jobs:
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      - name: Create or update book.json with base path for GitHub Pages
+      - name: Create book.json with correct base path for GitHub Pages
         run: |
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"  # e.g. "royce" if repo is username/royce
-          echo "Repository name detected: $REPO_NAME"
-          
-          # Create book.json if it doesn't exist
-          if [ ! -f book.json ]; then
-            echo "Creating new book.json"
-            cat << 'EOF' > book.json
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          echo "Repository name: $REPO_NAME"
+          BASE_PATH="/$REPO_NAME"
+
+          cat << EOF > book.json
           {
             "title": "Your Documentation",
+            "base": "$BASE_PATH",
             "plugins": [
               "-search",
               "fontsettings",
@@ -49,22 +48,11 @@ jobs:
             }
           }
           EOF
-          fi
 
-          # Add or update "base" field
-          if grep -q '"base"' book.json; then
-            sed -i "s|\"base\":.*|\"base\": \"/$REPO_NAME\",|" book.json
-          else
-            # Insert base before the last closing brace
-            sed -i '$ i \  "base": "/'"$REPO_NAME"'",' book.json
-            # Fix comma if it's the last property (simple safety)
-            sed -i 's/},$/}/' book.json
-          fi
-
-          echo "Final book.json content:"
+          echo "Generated book.json:"
           cat book.json
 
-      - name: Create custom styles (for better video/iframe display)
+      - name: Create custom styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
@@ -93,17 +81,17 @@ jobs:
           find . -type f -name "*.md" | while read -r file; do
             echo "Processing: $file"
 
-            # Convert GitBook embed for .mp4 files → playable <video> tag
+            # Convert .mp4 GitBook embed → <video> tag
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}|<video controls preload="metadata" width="100%"><source src="\1" type="video/mp4">Your browser does not support video.</video>|g' "$file"
 
-            # Convert YouTube embeds (if any)
+            # Convert YouTube embeds (fallback)
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url=".*\(youtube\.com\/watch?v=\|youtu\.be\/\)\([a-zA-Z0-9_-]\{11\}\).*%}|<iframe width="560" height="315" src="https://www.youtube.com/embed/\2" frameborder="0" allowfullscreen></iframe>|g' "$file"
 
-            # Remove any remaining embed tags (safety net)
+            # Remove any leftover embed tags
             sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
             sed -i 's/{%[[:space:]]*end[^%]*%}//g' "$file"
 
-            # Clean hint blocks if present
+            # Hint blocks cleanup
             sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
             sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
@@ -112,13 +100,10 @@ jobs:
             sed -i 's/{{[^}]*}}//g' "$file"
           done
 
-      - name: Debug – check for remaining embed tags
+      - name: Debug – verify no embed tags remain
         run: |
-          echo "Remaining {% embed %} tags:"
+          echo "Remaining embed tags:"
           grep -r --include="*.md" -i "{%.*embed" . || echo "None found – good!"
-          echo ""
-          echo "Sample from problematic file (should NOT show embed tag):"
-          sed -n '20,30p' how-to-instal-theme/how-to-navigate-to-blocks-in-3.0.md || echo "File not found"
 
       - name: Build GitBook
         run: |
@@ -131,5 +116,3 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
           force_orphan: true
-          # Optional: if you use a custom domain
-          # cname: docs.yourdomain.com
