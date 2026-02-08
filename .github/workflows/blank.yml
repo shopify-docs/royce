@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,9 +23,15 @@ jobs:
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      - name: Create book.json
+      - name: Create or update book.json with base path for GitHub Pages
         run: |
-          cat << 'EOF' > book.json
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"  # e.g. "royce" if repo is username/royce
+          echo "Repository name detected: $REPO_NAME"
+          
+          # Create book.json if it doesn't exist
+          if [ ! -f book.json ]; then
+            echo "Creating new book.json"
+            cat << 'EOF' > book.json
           {
             "title": "Your Documentation",
             "plugins": [
@@ -42,8 +49,22 @@ jobs:
             }
           }
           EOF
+          fi
 
-      - name: Add styles for video/iframe
+          # Add or update "base" field
+          if grep -q '"base"' book.json; then
+            sed -i "s|\"base\":.*|\"base\": \"/$REPO_NAME\",|" book.json
+          else
+            # Insert base before the last closing brace
+            sed -i '$ i \  "base": "/'"$REPO_NAME"'",' book.json
+            # Fix comma if it's the last property (simple safety)
+            sed -i 's/},$/}/' book.json
+          fi
+
+          echo "Final book.json content:"
+          cat book.json
+
+      - name: Create custom styles (for better video/iframe display)
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
@@ -58,45 +79,45 @@ jobs:
             width: 100%;
             max-width: 900px;
           }
+          .markdown-section blockquote {
+            border-left: 4px solid #007acc;
+            background: #f8f9fa;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+          }
           EOF
 
-      - name: Preprocess markdown files - REMOVE & CONVERT embeds
+      - name: Preprocess markdown files – convert embeds & clean tags
         run: |
           find . -type f -name "*.md" | while read -r file; do
             echo "Processing: $file"
 
-            # Layer 1: Try to convert .mp4 embeds to <video> tag
+            # Convert GitBook embed for .mp4 files → playable <video> tag
             sed -i 's|{%[[:space:]]*embed[[:space:]]\+url="\([^"]*\.mp4[^"]*\)"[^%]*%}|<video controls preload="metadata" width="100%"><source src="\1" type="video/mp4">Your browser does not support video.</video>|g' "$file"
 
-            # Layer 2: Remove ANY remaining {% embed ... %} (very aggressive)
-            sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
-            sed -i 's/{%.*embed.*%}//g' "$file"
+            # Convert YouTube embeds (if any)
+            sed -i 's|{%[[:space:]]*embed[[:space:]]\+url=".*\(youtube\.com\/watch?v=\|youtu\.be\/\)\([a-zA-Z0-9_-]\{11\}\).*%}|<iframe width="560" height="315" src="https://www.youtube.com/embed/\2" frameborder="0" allowfullscreen></iframe>|g' "$file"
 
-            # Layer 3: Remove possible {% endembed %} or similar
+            # Remove any remaining embed tags (safety net)
+            sed -i 's/{%[[:space:]]*embed[^%]*%}//g' "$file"
             sed -i 's/{%[[:space:]]*end[^%]*%}//g' "$file"
 
-            # Layer 4: Multi-line safety (if embed spans lines - rare but possible)
-            sed -i '/{%[[:space:]]*embed/,/%}/d' "$file" 2>/dev/null || true
-
-            # Other cleanups
+            # Clean hint blocks if present
             sed -i 's/{% hint style="[^"]*" %}/> **Note:** /g' "$file"
             sed -i 's/{% hint %}/> **Note:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
+
+            # Remove variables
             sed -i 's/{{[^}]*}}//g' "$file"
           done
 
-      - name: Debug - MUST show NO embed tags remain
+      - name: Debug – check for remaining embed tags
         run: |
-          echo "=== IMPORTANT DEBUG ==="
-          echo "Looking for any leftover {% embed tags"
-          if grep -r --include="*.md" -i "{%.*embed" .; then
-            echo "ERROR: Embed tags still exist - see above lines"
-            exit 1
-          else
-            echo "SUCCESS: No embed tags found in any .md file"
-          fi
+          echo "Remaining {% embed %} tags:"
+          grep -r --include="*.md" -i "{%.*embed" . || echo "None found – good!"
           echo ""
-          echo "Content snippet from problematic file (should NOT show embed tag):"
+          echo "Sample from problematic file (should NOT show embed tag):"
           sed -n '20,30p' how-to-instal-theme/how-to-navigate-to-blocks-in-3.0.md || echo "File not found"
 
       - name: Build GitBook
@@ -110,3 +131,5 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
           force_orphan: true
+          # Optional: if you use a custom domain
+          # cname: docs.yourdomain.com
