@@ -60,7 +60,7 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files (hints, embeds, icons)
+      - name: Preprocess markdown files (hints + embeds)
         run: |
           find . -type f -name "*.md" | while read -r file; do
             # Replace hint blocks
@@ -69,15 +69,15 @@ jobs:
             sed -i 's/{% endhint %}/\n/g' "$file"
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Replace YouTube and MP4 embeds
+            # Replace YouTube + MP4 embeds
             perl -0777 -i -pe '
               # YouTube watch URLs
               s/{%\s*embed\s+url="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
 
               # YouTube short URLs
               s/{%\s*embed\s+url="https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})[^"]*".*?%}/
-              <iframe width="560" height="315" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
+              <iframe width="100%" height="400" src="https:\/\/www.youtube.com\/embed\/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen><\/iframe>/gs;
 
               # MP4 embeds
               s/{%\s*embed\s+url="([^"]+\.mp4[^"]*)".*?%}/
@@ -91,11 +91,10 @@ jobs:
             sed -i 's/{%.*embed.*%}//g' "$file"
           done
 
-      - name: Add Font Awesome and layout styles
+      - name: Add layout styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
-          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
           iframe {
             display: block;
             margin: 20px auto;
